@@ -1,0 +1,4 @@
+gradio==5.27.0
+openai==1.76.0
+Pillow==11.1.0
+requests==2.32.3
