@@ -1,0 +1,5 @@
+# Your Openai api key, replace "sk-xxxxxxx" with your actual key value "..."
+API_KEY: "sk-xxxxxxx"
+# Use BASE_URL if you are not using official chatgpt api
+# example:  BASE_URL: "https://api.getgoapi.com/v1"
+BASE_URL: ""
