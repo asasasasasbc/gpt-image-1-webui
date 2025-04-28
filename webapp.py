@@ -21,14 +21,36 @@ for file in os.listdir(temp_dir):
     except Exception as e:
         print('Failed to delete temp gradio file %s. Reason: %s' % (file_path, e))
 
+
 import gradio as gr
 import openai
 
 import base64
-from PIL import Image
+from PIL import Image, PngImagePlugin
 from io import BytesIO
 import warnings
 import requests
+from datetime import datetime
+
+SAVE_PIC_FOLDER = ""
+
+def save_image_with_prompt(pil_image, prompt, output_folder=None):
+    if not output_folder:
+        output_folder = SAVE_PIC_FOLDER
+    if not output_folder:
+        return
+    # 确保输出文件夹存在
+    os.makedirs(output_folder, exist_ok=True)
+    # 获取当前时间
+    now = datetime.now()
+    filename = now.strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3] + '.png'  # 去掉最后3位微秒变毫秒
+    file_path = os.path.join(output_folder, filename)
+    # 准备PNG元数据
+    meta = PngImagePlugin.PngInfo()
+    meta.add_text("Comment", prompt)
+    # 保存图片并写入元数据
+    pil_image.save(file_path, pnginfo=meta)
+    print(f"图片已保存为 {file_path}")
 
 # Load environment variables (especially OPENAI_API_KEY)
 
@@ -47,6 +69,7 @@ def load_config(config_path="config.yaml"):
 config = load_config()
 API_KEY = config.get("API_KEY", "")
 BASE_URL = config.get("BASE_URL", "")
+SAVE_PIC_FOLDER = config.get("SAVE_PIC_FOLDER", "")
 
 if not API_KEY:
     warnings.warn("API_KEY not found in config.yaml. The app will likely fail.")
@@ -80,6 +103,7 @@ GENERATION_MODELS = ["gpt-image-1", "dall-e-3"]
 EDITING_MODELS = ["gpt-image-1", "dall-e-2"]
 BACKGROUND_OPTIONS = ["opaque", "transparent"] # gpt-image-1 only
 OUTPUT_FORMATS = ["png", "jpeg", "webp"] # png is default, others allow compression
+MODERATIONS = ["auto", "low"]
 
 # --- Helper Functions ---
 def decode_image(b64_string):
@@ -127,7 +151,8 @@ def generate_image_api(
     quality: str = "auto",
     output_format: str = "png",
     background: str = "opaque",
-    compression: int = 75
+    compression: int = 75,
+    moderation: str = "auto"
 ) -> Image.Image:
     """Calls the OpenAI Image Generation API."""
     if not client:
@@ -154,6 +179,7 @@ def generate_image_api(
     elif model == "gpt-image-1":
         api_params["size"] = size
         api_params["quality"] = quality
+        api_params["moderation"] = moderation
         if background == "transparent":
             if output_format not in ["png", "webp"]:
                 warnings.warn("Transparency requires PNG or WEBP format. Defaulting to PNG.")
@@ -182,7 +208,11 @@ def generate_image_api(
              raise gr.Error("API did not return base64 image data as expected.")
 
         print("--- Generation Complete ---")
-        return decode_image(b64_json)
+        pil_image = decode_image(b64_json)
+        #存储这个pil_image到本地的output文件夹，名字为当前时间YYYY-MM-DD-hh-mm-ss-ms.png
+        #并将prompt存到图片的详细信息里
+        save_image_with_prompt(pil_image,"prompt:" + str(prompt))
+        return pil_image
 
     except openai.APIConnectionError as e:
         raise gr.Error(f"API Connection Error: Check network, proxy settings, and OpenAI status. {e}")
@@ -209,7 +239,8 @@ def edit_image_api(
     quality: str = "auto",
     output_format: str = "png",
     background: str = "opaque",
-    compression: int = 75
+    compression: int = 75,
+    #moderation: str = "auto" # 图片编辑暂时不支持moderation
 ) -> Image.Image:
     """Calls the OpenAI Image Editing API (without mask)."""
     if not client:
@@ -250,6 +281,7 @@ def edit_image_api(
 
     # --- 模型特定参数处理 (保持不变) ---
     if model == "gpt-image-1":
+        #api_params["moderation"] = moderation
         api_params["quality"] = quality
         if background == "transparent":
              if output_format not in ["png", "webp"]:
@@ -284,7 +316,11 @@ def edit_image_api(
 
         if b64_json:
             print("--- Editing Complete (Base64 received) ---")
-            return decode_image(b64_json)
+            pil_image = decode_image(b64_json)
+            #存储这个pil_image到本地的output文件夹，名字为当前时间YYYY-MM-DD-hh-mm-ss-ms.png
+            #并将prompt存到图片的详细信息里
+            save_image_with_prompt(pil_image,"edit prompt:" + str(prompt))
+            return pil_image
         # DALL-E 2 编辑也可能返回 URL，保留下载逻辑
         elif image_url: # Simplied check now - if URL exists, try downloading
             print(f"--- Base64 not found for edit, downloading from URL: {image_url} ---")
@@ -343,6 +379,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as app:
                     gen_prompt = gr.Textbox(lines=3, label="Prompt", placeholder="e.g., A photorealistic cat astronaut riding a unicorn on the moon")
                     gen_model = gr.Dropdown(GENERATION_MODELS, label="Model", value="gpt-image-1")
                     gen_size = gr.Dropdown(AVAILABLE_SIZES, label="Size", value="1024x1024")
+                    gen_moderation = gr.Dropdown(MODERATIONS, label="Moderation(Age-restriction, gpt-image-1 only)", value="auto")
                     gen_quality = gr.Dropdown(AVAILABLE_QUALITIES, label="Quality", value="auto")
                     gen_background = gr.Radio(BACKGROUND_OPTIONS, label="Background (gpt-image-1 only)", value="opaque")
                     with gr.Accordion("Advanced Format Options (gpt-image-1)", open=False):
@@ -368,6 +405,8 @@ with gr.Blocks(theme=gr.themes.Soft()) as app:
                     )
                     edit_prompt = gr.Textbox(lines=3, label="Editing Prompt", placeholder="e.g., Add sunglasses to the cat, Make the background a sunny beach")
                     edit_model = gr.Dropdown(EDITING_MODELS, label="Model", value="gpt-image-1")
+                    #Currently edit mode does not support MODERATIONS
+                    #edit_moderation = gr.Dropdown(MODERATIONS, label="Moderation(Age-restriction, gpt-image-1 only)", value="auto")
                     edit_quality = gr.Dropdown(AVAILABLE_QUALITIES, label="Quality (gpt-image-1 recommended)", value="auto")
                     edit_background = gr.Radio(BACKGROUND_OPTIONS, label="Background (gpt-image-1 only)", value="opaque")
                     with gr.Accordion("Advanced Format Options (gpt-image-1)", open=False):
@@ -384,7 +423,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as app:
     # --- Connect Functions to UI ---
     gen_button.click(
         fn=generate_image_api,
-        inputs=[gen_prompt, gen_model, gen_size, gen_quality, gen_output_format, gen_background, gen_compression],
+        inputs=[gen_prompt, gen_model, gen_size, gen_quality, gen_output_format, gen_background, gen_compression, gen_moderation],
         outputs=gen_output_image,
         api_name="generate_image"
     )
