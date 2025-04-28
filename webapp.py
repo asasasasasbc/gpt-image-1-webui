@@ -50,6 +50,11 @@ BASE_URL = config.get("BASE_URL", "")
 
 if not API_KEY:
     warnings.warn("API_KEY not found in config.yaml. The app will likely fail.")
+
+# --- OpenAI Client Initialization ---
+# The OpenAI client (using httpx underneath) should automatically respect
+# standard proxy environment variables like HTTP_PROXY and HTTPS_PROXY.
+# Ensure these are set in your system environment or .env file *before* running the script.
 try:
     if BASE_URL:
         client = openai.OpenAI(api_key=API_KEY, base_url=BASE_URL)
@@ -66,21 +71,7 @@ if not API_KEY:
     # You could alternatively raise an error here or prompt the user in the UI
     # raise ValueError("Missing OPENAI_API_KEY environment variable")
 
-# --- OpenAI Client Initialization ---
-# The OpenAI client (using httpx underneath) should automatically respect
-# standard proxy environment variables like HTTP_PROXY and HTTPS_PROXY.
-# Ensure these are set in your system environment or .env file *before* running the script.
-try:
-    # Default initialization - relies on environment variables for proxy
-    if BASE_URL:
-        client = openai.OpenAI(api_key=API_KEY, base_url='https://api.getgoapi.com/v1')
-    # Default method, don't use custom api
-    else:
-        client = openai.OpenAI(api_key=API_KEY)
 
-except Exception as e:
-    warnings.warn(f"Failed to initialize OpenAI client: {e}")
-    client = None # Allow Gradio UI to load, but functions will fail
 
 # --- Constants ---
 AVAILABLE_SIZES = ["1024x1024", "1024x1536", "1536x1024","256x256", "512x512", "auto"]
