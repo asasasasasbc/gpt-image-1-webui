@@ -3,3 +3,5 @@ API_KEY: "sk-xxxxxxx"
 # Use BASE_URL if you are not using official chatgpt api
 # example:  BASE_URL: "https://api.getgoapi.com/v1"
 BASE_URL: ""
+# Folder that automatically saves generated photos
+SAVE_PIC_FOLDER: "output"
