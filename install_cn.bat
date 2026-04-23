@@ -1,0 +1,9 @@
+@echo off
+echo Creating virtual environment...
+python -m venv venv
+echo Activating virtual environment...
+call venv\Scripts\activate.bat
+echo Installing dependencies using Tsinghua mirror...
+pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+echo Install complete!
+pause
