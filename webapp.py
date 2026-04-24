@@ -34,7 +34,7 @@ from datetime import datetime
 
 SAVE_PIC_FOLDER = ""
 
-def save_image_with_prompt(pil_image, prompt, output_folder=None):
+def save_image_with_prompt(pil_image, prompt, output_folder=None, api_params=None):
     if not output_folder:
         output_folder = SAVE_PIC_FOLDER
     if not output_folder:
@@ -43,14 +43,28 @@ def save_image_with_prompt(pil_image, prompt, output_folder=None):
     os.makedirs(output_folder, exist_ok=True)
     # 获取当前时间
     now = datetime.now()
-    filename = now.strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3] + '.png'  # 去掉最后3位微秒变毫秒
-    file_path = os.path.join(output_folder, filename)
+    filename = now.strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
+    file_path = os.path.join(output_folder, filename + '.png')
+    log_path = os.path.join(output_folder, filename + '.log')
     # 准备PNG元数据
     meta = PngImagePlugin.PngInfo()
     meta.add_text("Comment", prompt)
     # 保存图片并写入元数据
     pil_image.save(file_path, pnginfo=meta)
     print(f"图片已保存为 {file_path}")
+    
+    # 保存参数到日志文件
+    try:
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write(f"Prompt: {prompt}\n")
+            if api_params:
+                f.write(f"API Parameters:\n")
+                for k, v in api_params.items():
+                    if k not in ['image', 'mask']:  # 避免打印巨量二进制数据
+                        f.write(f"  {k}: {v}\n")
+        print(f"日志已保存为 {log_path}")
+    except Exception as e:
+        print(f"保存日志失败: {e}")
 
 # Load environment variables (especially OPENAI_API_KEY)
 
@@ -70,6 +84,7 @@ config = load_config()
 API_KEY = config.get("API_KEY", "")
 BASE_URL = config.get("BASE_URL", "")
 SAVE_PIC_FOLDER = config.get("SAVE_PIC_FOLDER", "")
+TIMEOUT = config.get("TIMEOUT", 60.0)
 
 if not API_KEY:
     warnings.warn("API_KEY not found in config.yaml. The app will likely fail.")
@@ -80,9 +95,9 @@ if not API_KEY:
 # Ensure these are set in your system environment or .env file *before* running the script.
 try:
     if BASE_URL:
-        client = openai.OpenAI(api_key=API_KEY, base_url=BASE_URL)
+        client = openai.OpenAI(api_key=API_KEY, base_url=BASE_URL, timeout=TIMEOUT)
     else:
-        client = openai.OpenAI(api_key=API_KEY)
+        client = openai.OpenAI(api_key=API_KEY, timeout=TIMEOUT)
 except Exception as e:
     warnings.warn(f"Failed to initialize OpenAI client: {e}")
     client = None
@@ -97,10 +112,10 @@ if not API_KEY:
 
 
 # --- Constants ---
-AVAILABLE_SIZES = ["1024x1024", "1024x1536", "1536x1024","256x256", "512x512", "auto"]
+AVAILABLE_SIZES = ["1024x1024", "1024x1536", "1536x1024","2048x2048","256x256", "512x512", "auto"]
 AVAILABLE_QUALITIES = ["standard", "hd", "low", "medium", "high", "auto"] # Combined options
-GENERATION_MODELS = ["gpt-image-1", "dall-e-3"]
-EDITING_MODELS = ["gpt-image-1", "dall-e-2"]
+GENERATION_MODELS = ["gpt-image-1","gpt-image-1.5","gpt-image-2", "dall-e-3"]
+EDITING_MODELS =  ["gpt-image-1","gpt-image-1.5","gpt-image-2", "dall-e-2"]
 BACKGROUND_OPTIONS = ["opaque", "transparent"] # gpt-image-1 only
 OUTPUT_FORMATS = ["png", "jpeg", "webp"] # png is default, others allow compression
 MODERATIONS = ["auto", "low"]
@@ -176,7 +191,7 @@ def generate_image_api(
         if background == "transparent": warnings.warn("DALL-E 3 does not support transparent backgrounds. Ignoring.")
         if output_format != "png": warnings.warn("DALL-E 3 primarily uses png. Requested format might be ignored.")
 
-    elif model == "gpt-image-1":
+    elif model.startswith("gpt-image-"):
         api_params["size"] = size
         api_params["quality"] = quality
         api_params["moderation"] = moderation
@@ -211,7 +226,7 @@ def generate_image_api(
         pil_image = decode_image(b64_json)
         #存储这个pil_image到本地的output文件夹，名字为当前时间YYYY-MM-DD-hh-mm-ss-ms.png
         #并将prompt存到图片的详细信息里
-        save_image_with_prompt(pil_image,"prompt:" + str(prompt))
+        save_image_with_prompt(pil_image, "prompt: " + str(prompt), api_params=api_params)
         return pil_image
 
     except openai.APIConnectionError as e:
@@ -280,7 +295,7 @@ def edit_image_api(
     #     api_params["mask"] = mask_bytes
 
     # --- 模型特定参数处理 (保持不变) ---
-    if model == "gpt-image-1":
+    if model.startswith("gpt-image-"):
         #api_params["moderation"] = moderation
         api_params["quality"] = quality
         if background == "transparent":
@@ -319,7 +334,7 @@ def edit_image_api(
             pil_image = decode_image(b64_json)
             #存储这个pil_image到本地的output文件夹，名字为当前时间YYYY-MM-DD-hh-mm-ss-ms.png
             #并将prompt存到图片的详细信息里
-            save_image_with_prompt(pil_image,"edit prompt:" + str(prompt))
+            save_image_with_prompt(pil_image, "edit prompt: " + str(prompt), api_params=api_params)
             return pil_image
         # DALL-E 2 编辑也可能返回 URL，保留下载逻辑
         elif image_url: # Simplied check now - if URL exists, try downloading
